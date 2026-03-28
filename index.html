@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Marching Band Rhythm Game</title>
+<style>
+  body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: #222;
+    color: #eee;
+    text-align: center;
+    margin: 0;
+    overflow: hidden;
+  }
+  h1 {
+    margin-top: 20px;
+    font-weight: 400;
+  }
+  #game {
+    position: relative;
+    width: 400px;
+    height: 600px;
+    margin: 20px auto;
+    background: #111;
+    border: 3px solid #4caf50;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .column {
+    position: absolute;
+    width: 90px;
+    height: 100%;
+    border-left: 1px solid #444;
+    border-right: 1px solid #444;
+  }
+  #col0 { left: 0; }
+  #col1 { left: 100px; }
+  #col2 { left: 200px; }
+  #col3 { left: 300px; }
+
+  .note {
+    position: absolute;
+    width: 80px;
+    height: 20px;
+    background: #4caf50;
+    border-radius: 4px;
+    left: 5px;
+  }
+
+  #hit-line {
+    position: absolute;
+    bottom: 100px;
+    width: 100%;
+    height: 5px;
+    background: #ff5722;
+    opacity: 0.7;
+  }
+
+  #score {
+    font-size: 20px;
+    margin-top: 10px;
+  }
+
+  #instructions {
+    max-width: 400px;
+    margin: 10px auto;
+    font-size: 14px;
+    color: #ccc;
+  }
+
+  .hit-feedback {
+    position: absolute;
+    bottom: 110px;
+    width: 80px;
+    height: 20px;
+    font-weight: bold;
+    color: #ffeb3b;
+    text-shadow: 0 0 6px #ffeb3b;
+    pointer-events: none;
+    user-select: none;
+  }
+</style>
+</head>
+<body>
+<h1>Marching Band Rhythm Game</h1>
+<div id="game">
+  <div id="col0" class="column"></div>
+  <div id="col1" class="column"></div>
+  <div id="col2" class="column"></div>
+  <div id="col3" class="column"></div>
+  <div id="hit-line"></div>
+</div>
+<div id="score">Score: 0</div>
+<div id="instructions">
+  Press keys <b>D</b>, <b>F</b>, <b>J</b>, <b>K</b> as the notes reach the red line.<br/>
+  Try to hit notes on time to score points!
+</div>
+
+<script>
+  const columns = [
+    document.getElementById('col0'),
+    document.getElementById('col1'),
+    document.getElementById('col2'),
+    document.getElementById('col3'),
+  ];
+  const hitLineY = 100; // px from bottom
+  const noteSpeed = 200; // pixels per second
+  let score = 0;
+
+  // Notes array: each note has a column (0-3) and a spawn time in seconds
+  // Example simple beat pattern
+  const notes = [
+    { time: 1, col: 0 },
+    { time: 1.5, col: 1 },
+    { time: 2, col: 2 },
+    { time: 2.5, col: 3 },
+    { time: 3, col: 0 },
+    { time: 3.5, col: 1 },
+    { time: 4, col: 2 },
+    { time: 4.5, col: 3 },
+    { time: 5, col: 0 },
+  ];
+
+  // Active notes on screen
+  let activeNotes = [];
+
+  // Game start time
+  let startTime = null;
+
+  // Key to column mapping
+  const keyMap = {
+    'd': 0,
+    'f': 1,
+    'j': 2,
+    'k': 3,
+  };
+
+  // Allowed hit window in pixels
+  const hitWindow = 30;
+
+  // Create note element
+  function createNoteElement(col) {
+    const note = document.createElement('div');
+    note.classList.add('note');
+    note.style.left = '5px';
+    columns[col].appendChild(note);
+    return note;
+  }
+
+  // Show hit feedback
+  function showHitFeedback(col, text) {
+    const feedback = document.createElement('div');
+    feedback.classList.add('hit-feedback');
+    feedback.style.left = (col * 100 + 5) + 'px';
+    feedback.textContent = text;
+    document.getElementById('game').appendChild(feedback);
+    setTimeout(() => feedback.remove(), 500);
+  }
+
+  // Update score display
+  function updateScore() {
+    document.getElementById('score').textContent = `Score: ${score}`;
+  }
+
+  // Game loop
+  function gameLoop(timestamp) {
+    if (!startTime) startTime = timestamp;
+    const elapsed = (timestamp - startTime) / 1000;
+
+    // Spawn new notes
+    while (notes.length && notes[0].time <= elapsed + 3) {
+      const noteData = notes.shift();
+      const noteEl = createNoteElement(noteData.col);
+      activeNotes.push({
+        el: noteEl,
+        col: noteData.col,
+        spawnTime: noteData.time,
+        hit: false,
+      });
+    }
+
+    // Update note positions
+    activeNotes.forEach(note => {
+      const timeSinceSpawn = elapsed - note.spawnTime;
+      const y = 600 - (timeSinceSpawn * noteSpeed);
+      if (y < -20) {
+        // Note missed, remove it
+        if (!note.hit) {
+          showHitFeedback(note.col, 'Miss');
+        }
+        note.el.remove();
+        note.hit = true; // mark as hit to avoid multiple removals
+      } else {
+        note.el.style.bottom = y + 'px';
+      }
+    });
+
+    // Remove hit/missed notes
+    activeNotes = activeNotes.filter(note => !note.hit);
+
+    requestAnimationFrame(gameLoop);
+  }
+
+  // Handle key presses
+  window.addEventListener('keydown', e => {
+    const key = e.key.toLowerCase();
+    if (!(key in keyMap)) return;
+
+    const col = keyMap[key];
+    // Find closest note in this column near hit line
+    let bestNote = null;
+    let bestDist = hitWindow + 1;
+
+    activeNotes.forEach(note => {
+      if (note.col === col && !note.hit) {
+        const noteY = parseFloat(note.el.style.bottom);
+        const dist = Math.abs(noteY - hitLineY);
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestNote = note;
+        }
+      }
+    });
+
+    if (bestNote && bestDist <= hitWindow) {
+      // Successful hit
+      bestNote.hit = true;
+      bestNote.el.remove();
+
+      // Score points based on accuracy
+      if (bestDist < 10) {
+        score += 100;
+        showHitFeedback(col, 'Perfect!');
+      } else if (bestDist < 20) {
+        score += 70;
+        showHitFeedback(col, 'Great!');
+      } else {
+        score += 50;
+        showHitFeedback(col, 'Good');
+      }
+      updateScore();
+    } else {
+      // Missed hit
+      score -= 10;
+      showHitFeedback(col, 'Miss');
+      updateScore();
+    }
+  });
+
+  // Start the game loop
+  requestAnimationFrame(gameLoop);
+</script>
+</body>
+</html>
